@@ -1,0 +1,143 @@
+# Database Structure
+
+This document describes the database structure for the campus forum. The system includes tables for users, posts, comments (with sub-comments), reactions (emoji reactions instead of likes), tags, a sign-up calendar. posts and comments have embedding vectors for semantic search.
+
+## 1. Users Table
+
+Stores information about the users of the forum.
+
+```sql
+CREATE TABLE Users (
+    user_id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    email VARCHAR(100),
+    email_verified BOOLEAN DEFAULT FALSE,
+    phone_number VARCHAR(20),
+    phone_verified BOOLEAN DEFAULT FALSE,
+    profile_picture_url TEXT,
+    role ENUM('admin', 'moderator', 'user') DEFAULT 'user',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 2. Posts Table
+
+Stores posts created by users. Includes a reference to the user who created the post.
+
+```sql
+CREATE TABLE Posts (
+    post_id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    embedding VECTOR,  -- Optional: Store embedding vector for semantic search
+    comment_count INT DEFAULT 0,
+    reaction_count INT DEFAULT 0,
+    views_count INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id)
+);
+```
+
+## 3. Comments Table
+
+Stores comments on posts. Supports sub-comments (recursive structure via `parent_comment_id`).
+
+```sql
+CREATE TABLE Comments (
+    comment_id SERIAL PRIMARY KEY,
+    post_id INT NOT NULL,
+    user_id INT NOT NULL,
+    content TEXT NOT NULL,
+    embedding VECTOR,  -- Optional: Store embedding vector for semantic search
+    parent_comment_id INT,  -- Self-referencing foreign key for sub-comments
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (post_id) REFERENCES Posts(post_id),
+    FOREIGN KEY (user_id) REFERENCES Users(user_id),
+    FOREIGN KEY (parent_comment_id) REFERENCES Comments(comment_id)  -- Self-referencing foreign key
+);
+```
+
+## 4. Reactions Table (Emoji Reactions)
+
+Stores emoji reactions for posts and comments. Each user can react with a specific emoji, and multiple reactions are allowed.
+
+```sql
+CREATE TABLE Reactions (
+    reaction_id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    post_id INT,  -- Can be NULL for comment reactions
+    comment_id INT,  -- Can be NULL for post reactions
+    emoji VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id),
+    FOREIGN KEY (post_id) REFERENCES Posts(post_id),
+    FOREIGN KEY (comment_id) REFERENCES Comments(comment_id),
+    CONSTRAINT unique_reaction UNIQUE (user_id, post_id, comment_id, emoji)
+);
+```
+
+## 5. User Calendar Table (Sign-up Calendar)
+
+Tracks user status on specific days (e.g., whether the user logged in or not). Users can view their own calendar and others' calendars.
+
+```sql
+CREATE TABLE UserCalendar (
+    calendar_id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id),
+    CONSTRAINT unique_status_per_day UNIQUE (user_id, date)
+);
+```
+
+## 6. Tags Table
+
+Stores tags, which can be system-defined or user-defined. Tags are associated with posts for categorization.
+
+```sql
+CREATE TABLE Tags (
+    tag_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    tag_type ENUM('system', 'user') DEFAULT 'user',
+    description TEXT,  -- Optional, for user-defined tags
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## 7. PostTags Table (Many-to-Many Relationship between Posts and Tags)
+
+Links posts to tags. Each post can have multiple tags.
+
+```sql
+CREATE TABLE PostTags (
+    post_id INT NOT NULL,
+    tag_id INT NOT NULL,
+    PRIMARY KEY (post_id, tag_id),
+    FOREIGN KEY (post_id) REFERENCES Posts(post_id),
+    FOREIGN KEY (tag_id) REFERENCES Tags(tag_id)
+);
+```
+
+## 8. Embedding for Posts and Comments (Optional)
+
+The `embedding` field stores vector embeddings for posts and comments, enabling semantic search and clustering. The embeddings will be computed by a third-party service and stored in the database.
+
+## Summary of Relationships
+
+- **Users to Posts**: One-to-many (one user can create many posts).
+- **Posts to Comments**: One-to-many (one post can have many comments).
+- **Users to Comments**: One-to-many (one user can make many comments).
+- **Users to Reactions**: One-to-many (one user can react with emojis to posts or comments).
+- **Posts to Tags**: Many-to-many (a post can have multiple tags, and tags can be applied to multiple posts).
+- **Comments to Sub-Comments**: Recursive (a comment can have multiple sub-comments, which are linked to the parent comment via `parent_comment_id`).
+- **Calendar**: Each user has a calendar with daily status (active, absent, etc.).
+
+This design allows you to manage user posts, comments, reactions, tags, a sign-up calendar, and embedding vectors efficiently while supporting advanced features like semantic search and auto-clustering based on vector embeddings.
