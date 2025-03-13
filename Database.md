@@ -7,19 +7,33 @@ This document describes the database structure for the campus forum. The system 
 Stores information about the users of the forum.
 
 ```sql
+CREATE TABLE UserRoles (
+    role_id SERIAL PRIMARY KEY,
+    role_name VARCHAR(50) UNIQUE NOT NULL
+);
+
 CREATE TABLE Users (
     user_id SERIAL PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
+    username VARCHAR(50) NOT NULL,
     password_hash TEXT NOT NULL,
     email VARCHAR(100),
-    email_verified BOOLEAN DEFAULT FALSE,
+    email_verified BOOLEAN DEFAULT FALSE NOT NULL,
     phone_number VARCHAR(20),
-    phone_verified BOOLEAN DEFAULT FALSE,
+    phone_verified BOOLEAN DEFAULT FALSE NOT NULL,
     profile_picture_url TEXT,
-    role ENUM('admin', 'moderator', 'user') DEFAULT 'user',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    role_id INT NOT NULL,
+    is_deleted BOOLEAN DEFAULT FALSE NOT NULL,
+    deleted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    FOREIGN KEY (role_id) REFERENCES UserRoles(role_id),
+    CONSTRAINT valid_email CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
+    CONSTRAINT valid_phone CHECK (phone_number ~ '^\+?[0-9]{10,15}$'),
+    CONSTRAINT unique_active_username UNIQUE (username) WHERE NOT is_deleted
 );
+
+CREATE INDEX idx_users_username ON Users(username) WHERE NOT is_deleted;
+CREATE INDEX idx_users_email ON Users(email) WHERE NOT is_deleted;
 ```
 
 ## 2. Posts Table
@@ -32,14 +46,20 @@ CREATE TABLE Posts (
     user_id INT NOT NULL,
     title VARCHAR(255) NOT NULL,
     content TEXT NOT NULL,
-    embedding VECTOR,  -- Optional: Store embedding vector for semantic search
-    comment_count INT DEFAULT 0,
-    reaction_count INT DEFAULT 0,
-    views_count INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id)
+    embedding JSON,
+    comment_count INT DEFAULT 0 NOT NULL,
+    reaction_count INT DEFAULT 0 NOT NULL,
+    views_count INT DEFAULT 0 NOT NULL,
+    is_deleted BOOLEAN DEFAULT FALSE NOT NULL,
+    deleted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    CONSTRAINT valid_counts CHECK (comment_count >= 0 AND reaction_count >= 0 AND views_count >= 0)
 );
+
+CREATE INDEX idx_posts_user_id ON Posts(user_id) WHERE NOT is_deleted;
+CREATE INDEX idx_posts_created_at ON Posts(created_at) WHERE NOT is_deleted;
 ```
 
 ## 3. Comments Table
@@ -52,50 +72,109 @@ CREATE TABLE Comments (
     post_id INT NOT NULL,
     user_id INT NOT NULL,
     content TEXT NOT NULL,
-    embedding VECTOR,  -- Optional: Store embedding vector for semantic search
-    parent_comment_id INT,  -- Self-referencing foreign key for sub-comments
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    embedding JSON,
+    parent_comment_id INT,
+    is_deleted BOOLEAN DEFAULT FALSE NOT NULL,
+    deleted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (post_id) REFERENCES Posts(post_id),
     FOREIGN KEY (user_id) REFERENCES Users(user_id),
-    FOREIGN KEY (parent_comment_id) REFERENCES Comments(comment_id)  -- Self-referencing foreign key
+    FOREIGN KEY (parent_comment_id) REFERENCES Comments(comment_id)
 );
+
+CREATE INDEX idx_comments_post_id ON Comments(post_id) WHERE NOT is_deleted;
 ```
 
-## 4. Reactions Table (Emoji Reactions)
+## 4. Reaction System Tables
 
-Stores emoji reactions for posts and comments. Each user can react with a specific emoji, and multiple reactions are allowed.
+### 4.1 Reaction Emojis Table
+
+Stores the available emoji options for reactions, including custom emojis.
+
+```sql
+CREATE TABLE ReactionEmojis (
+    emoji_id SERIAL PRIMARY KEY,
+    emoji_code VARCHAR(50) NOT NULL,
+    description TEXT,
+    image_url TEXT,
+    display_order INT DEFAULT 0 NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT unique_emoji_code UNIQUE (emoji_code)
+);
+
+CREATE INDEX idx_reaction_emojis_display_order ON ReactionEmojis(display_order) WHERE is_active;
+```
+
+### 4.2 Reactions Table
+
+Stores emoji reactions for posts and comments, referencing the ReactionEmojis table.
 
 ```sql
 CREATE TABLE Reactions (
     reaction_id SERIAL PRIMARY KEY,
     user_id INT NOT NULL,
-    post_id INT,  -- Can be NULL for comment reactions
-    comment_id INT,  -- Can be NULL for post reactions
-    emoji VARCHAR(50) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id),
-    FOREIGN KEY (post_id) REFERENCES Posts(post_id),
-    FOREIGN KEY (comment_id) REFERENCES Comments(comment_id),
-    CONSTRAINT unique_reaction UNIQUE (user_id, post_id, comment_id, emoji)
+    post_id INT,
+    comment_id INT,
+    emoji_id INT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (post_id) REFERENCES Posts(post_id) ON DELETE CASCADE,
+    FOREIGN KEY (comment_id) REFERENCES Comments(comment_id) ON DELETE CASCADE,
+    FOREIGN KEY (emoji_id) REFERENCES ReactionEmojis(emoji_id) ON DELETE RESTRICT,
+    CONSTRAINT unique_reaction UNIQUE (user_id, post_id, comment_id, emoji_id),
+    CONSTRAINT valid_target CHECK (
+        (post_id IS NULL AND comment_id IS NOT NULL) OR
+        (post_id IS NOT NULL AND comment_id IS NULL)
+    )
 );
+
+CREATE INDEX idx_reactions_post_id ON Reactions(post_id);
+CREATE INDEX idx_reactions_comment_id ON Reactions(comment_id);
+CREATE INDEX idx_reactions_user_id ON Reactions(user_id);
 ```
 
-## 5. User Calendar Table (Sign-up Calendar)
+## 5. Calendar System Tables
 
-Tracks user status on specific days (e.g., whether the user logged in or not). Users can view their own calendar and others' calendars.
+### 5.1 Calendar Emojis Table
+
+Stores the available emoji options for calendar marks.
+
+```sql
+CREATE TABLE CalendarEmojis (
+    emoji_id SERIAL PRIMARY KEY,
+    emoji_code VARCHAR(50) NOT NULL,
+    description TEXT,
+    image_url TEXT,
+    display_order INT DEFAULT 0 NOT NULL,
+    probability DECIMAL(5,4) DEFAULT 0.0 NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT valid_probability CHECK (probability >= 0.0 AND probability <= 1.0),
+    CONSTRAINT unique_emoji_code UNIQUE (emoji_code)
+);
+
+CREATE INDEX idx_calendar_emojis_display_order ON CalendarEmojis(display_order) WHERE is_active;
+```
+
+### 5.2 User Calendar Table
 
 ```sql
 CREATE TABLE UserCalendar (
     calendar_id SERIAL PRIMARY KEY,
     user_id INT NOT NULL,
-    status VARCHAR(50) NOT NULL,
+    emoji_id INT NOT NULL,
     date DATE NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES Users(user_id),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (emoji_id) REFERENCES CalendarEmojis(emoji_id) ON DELETE RESTRICT,
     CONSTRAINT unique_status_per_day UNIQUE (user_id, date)
 );
+
+CREATE INDEX idx_user_calendar_date ON UserCalendar(date);
+CREATE INDEX idx_user_calendar_user_id ON UserCalendar(user_id);
 ```
 
 ## 6. Tags Table
@@ -107,8 +186,8 @@ CREATE TABLE Tags (
     tag_id SERIAL PRIMARY KEY,
     name VARCHAR(100) UNIQUE NOT NULL,
     tag_type ENUM('system', 'user') DEFAULT 'user',
-    description TEXT,  -- Optional, for user-defined tags
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -139,5 +218,7 @@ The `embedding` field stores vector embeddings for posts and comments, enabling 
 - **Posts to Tags**: Many-to-many (a post can have multiple tags, and tags can be applied to multiple posts).
 - **Comments to Sub-Comments**: Recursive (a comment can have multiple sub-comments, which are linked to the parent comment via `parent_comment_id`).
 - **Calendar**: Each user has a calendar with daily status (active, absent, etc.).
+- **Reactions System**: Custom emojis stored in ReactionEmojis table, with reactions linking to specific emojis
+- **Calendar System**: Custom emojis stored in CalendarEmojis table, with calendar entries linking to specific emojis
 
-This design allows you to manage user posts, comments, reactions, tags, a sign-up calendar, and embedding vectors efficiently while supporting advanced features like semantic search and auto-clustering based on vector embeddings.
+This design allows to manage user posts, comments, reactions, tags, a sign-up calendar, and embedding vectors efficiently while supporting advanced features like semantic search and auto-clustering based on vector embeddings.
