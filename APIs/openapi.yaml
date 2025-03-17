@@ -4,92 +4,65 @@ info:
   version: 1.0.0
   description: API for interacting with the campus forum database.
 
+
 paths:
+  # User Management API Reference
   /users:
-    get:
-      summary: Retrieve a list of users
-      responses:
-        '200':
-          description: A list of users
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/User'
-    post:
-      summary: Create a new user
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NewUser'
-      responses:
-        '201':
-          description: User created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/User'
+    $ref: 'user-management.yaml#/paths/~1users'
+  /users/{user_id}:
+    $ref: 'user-management.yaml#/paths/~1users~1{user_id}'
+  /auth/login:
+    $ref: 'user-management.yaml#/paths/~1auth~1login'
+  /auth/refresh:
+    $ref: 'user-management.yaml#/paths/~1auth~1refresh'
 
+  # Post Management API Reference
   /posts:
-    get:
-      summary: Retrieve a list of posts
-      responses:
-        '200':
-          description: A list of posts
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Post'
-    post:
-      summary: Create a new post
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NewPost'
-      responses:
-        '201':
-          description: Post created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Post'
-
+    $ref: 'post-management.yaml#/paths/~1posts'
+  /posts/{post_id}:
+    $ref: 'post-management.yaml#/paths/~1posts~1{post_id}'
+  /posts/hot:
+    $ref: 'post-management.yaml#/paths/~1posts~1hot'
+  /posts/search:
+    $ref: 'post-management.yaml#/paths/~1posts~1search'
+  
+  # Comment Management API Reference
   /comments:
-    get:
-      summary: Retrieve a list of comments
-      responses:
-        '200':
-          description: A list of comments
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Comment'
-    post:
-      summary: Create a new comment
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NewComment'
-      responses:
-        '201':
-          description: Comment created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Comment'
+    $ref: 'comment-management.yaml#/paths/~1comments'
+  /comments/{comment_id}:
+    $ref: 'comment-management.yaml#/paths/~1comments~1{comment_id}'
+  /posts/{post_id}/comments:
+    $ref: 'comment-management.yaml#/paths/~1posts~1{post_id}~1comments'
+  
+  # Reaction System API Reference
+  /emojis:
+    $ref: 'reaction-system.yaml#/paths/~1emojis'
+  /posts/{post_id}/reactions:
+    $ref: 'reaction-system.yaml#/paths/~1posts~1{post_id}~1reactions'
+  /comments/{comment_id}/reactions:
+    $ref: 'reaction-system.yaml#/paths/~1comments~1{comment_id}~1reactions'
+  
+  # Calendar System API Reference
+  /calendar/{user_id}/emojis:
+    $ref: 'calendar-system.yaml#/paths/~1calendar~1{user_id}~1emojis'
+  /calendar/{user_id}/pull-emoji:
+    $ref: 'calendar-system.yaml#/paths/~1calendar~1{user_id}~1pull-emoji'
+  
+  # Tag Management API Reference
+  /tags:
+    $ref: 'tag-management.yaml#/paths/~1tags'
+  /tags/{tag_id}:
+    $ref: 'tag-management.yaml#/paths/~1tags~1{tag_id}'
+  /posts/tags/{tag_id}:
+    $ref: 'tag-management.yaml#/paths/~1posts~1tags~1{tag_id}'
 
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
     User:
       type: object
@@ -223,4 +196,120 @@ components:
         embedding:
           type: object
         parent_comment_id:
-          type: integer 
+          type: integer
+
+    Emoji:
+      type: object
+      properties:
+        emoji_id:
+          type: integer
+        emoji_code:
+          type: string
+        description:
+          type: string
+        image_url:
+          type: string
+        display_order:
+          type: integer
+
+    CalendarEmojiHistory:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        emoji:
+          $ref: '#/components/schemas/Emoji'
+
+    HotPost:
+      type: object
+      properties:
+        postID:
+          type: integer
+        title:
+          type: string
+        content_preview:
+          type: string
+        comment_count:
+          type: integer
+        click_count:
+          type: integer
+        time:
+          type: string
+          format: date-time
+        most_frequent_reaction_count:
+          type: integer
+        most_frequent_reaction:
+          $ref: '#/components/schemas/Emoji'
+        user_choice:
+          type: string
+          nullable: true
+        background_url:
+          type: string
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+
+    Tag:
+      type: object
+      properties:
+        tag_name:
+          type: string
+        isImportant:
+          type: boolean
+        tagcolor:
+          type: string
+
+    PostDetail:
+      type: object
+      properties:
+        postID:
+          type: integer
+        title:
+          type: string
+        content:
+          type: string
+        reaction_list:
+          type: array
+          items:
+            type: object
+            properties:
+              emoji:
+                $ref: '#/components/schemas/Emoji'
+              emoji_count:
+                type: integer
+        click_count:
+          type: integer
+        background_url:
+          type: string
+        time:
+          type: string
+          format: date-time
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+        comments_list:
+          type: array
+          items:
+            type: object
+            properties:
+              content:
+                type: string
+              parent_comment_id:
+                type: integer
+              time:
+                type: string
+                format: date-time
+              reaction_list:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    emoji:
+                      $ref: '#/components/schemas/Emoji'
+                    emoji_count:
+                      type: integer
+              post_id:
+                type: integer 
