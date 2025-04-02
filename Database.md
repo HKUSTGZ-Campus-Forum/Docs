@@ -36,7 +36,27 @@ CREATE INDEX idx_users_username ON Users(username) WHERE NOT is_deleted;
 CREATE INDEX idx_users_email ON Users(email) WHERE NOT is_deleted;
 ```
 
-## 2. Posts Table
+## 2. Token Blacklist Table
+
+Stores revoked JWT tokens to implement secure logout functionality and prevent the use of invalid tokens.
+
+```sql
+CREATE TABLE token_blacklist (
+    id SERIAL PRIMARY KEY,
+    jti VARCHAR(36) UNIQUE NOT NULL,
+    token_type VARCHAR(10) NOT NULL,
+    user_id INT NOT NULL,
+    revoked_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    expires TIMESTAMPTZ NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_token_blacklist_jti ON token_blacklist(jti);
+CREATE INDEX idx_token_blacklist_user_id ON token_blacklist(user_id);
+CREATE INDEX idx_token_blacklist_expires ON token_blacklist(expires);
+```
+
+## 3. Posts Table
 
 Stores posts created by users. Includes a reference to the user who created the post.
 
@@ -62,7 +82,7 @@ CREATE INDEX idx_posts_user_id ON Posts(user_id) WHERE NOT is_deleted;
 CREATE INDEX idx_posts_created_at ON Posts(created_at) WHERE NOT is_deleted;
 ```
 
-## 3. Comments Table
+## 4. Comments Table
 
 Stores comments on posts. Supports sub-comments (recursive structure via `parent_comment_id`).
 
@@ -86,9 +106,9 @@ CREATE TABLE Comments (
 CREATE INDEX idx_comments_post_id ON Comments(post_id) WHERE NOT is_deleted;
 ```
 
-## 4. Reaction System Tables
+## 5. Reaction System Tables
 
-### 4.1 Reaction Emojis Table
+### 5.1 Reaction Emojis Table
 
 Stores the available emoji options for reactions, including custom emojis.
 
@@ -107,7 +127,7 @@ CREATE TABLE ReactionEmojis (
 CREATE INDEX idx_reaction_emojis_display_order ON ReactionEmojis(display_order) WHERE is_active;
 ```
 
-### 4.2 Reactions Table
+### 5.2 Reactions Table
 
 Stores emoji reactions for posts and comments, referencing the ReactionEmojis table.
 
@@ -135,9 +155,9 @@ CREATE INDEX idx_reactions_comment_id ON Reactions(comment_id);
 CREATE INDEX idx_reactions_user_id ON Reactions(user_id);
 ```
 
-## 5. Calendar System Tables
+## 6. Calendar System Tables
 
-### 5.1 Calendar Emojis Table
+### 6.1 Calendar Emojis Table
 
 Stores the available emoji options for calendar marks.
 
@@ -158,7 +178,7 @@ CREATE TABLE CalendarEmojis (
 CREATE INDEX idx_calendar_emojis_display_order ON CalendarEmojis(display_order) WHERE is_active;
 ```
 
-### 5.2 User Calendar Table
+### 6.2 User Calendar Table
 
 ```sql
 CREATE TABLE UserCalendar (
@@ -177,7 +197,7 @@ CREATE INDEX idx_user_calendar_date ON UserCalendar(date);
 CREATE INDEX idx_user_calendar_user_id ON UserCalendar(user_id);
 ```
 
-## 6. Tags Table
+## 7. Tags Table
 
 Stores tags, which can be system-defined or user-defined. Tags are associated with posts for categorization.
 
@@ -191,7 +211,7 @@ CREATE TABLE Tags (
 );
 ```
 
-## 7. PostTags Table (Many-to-Many Relationship between Posts and Tags)
+## 8. PostTags Table (Many-to-Many Relationship between Posts and Tags)
 
 Links posts to tags. Each post can have multiple tags.
 
@@ -205,7 +225,7 @@ CREATE TABLE PostTags (
 );
 ```
 
-## 8. Embedding for Posts and Comments (Optional)
+## 9. Embedding for Posts and Comments (Optional)
 
 The `embedding` field stores vector embeddings for posts and comments, enabling semantic search and clustering. The embeddings will be computed by a third-party service and stored in the database.
 

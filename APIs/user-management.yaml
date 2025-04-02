@@ -15,28 +15,31 @@ components:
     User:
       type: object
       properties:
-        user_id:
+        id:
           type: integer
         username:
           type: string
+          description: 3-50 characters; letters, numbers and underscores only
         email:
           type: string
+          description: Must be a valid email format
         email_verified:
           type: boolean
         phone_number:
           type: string
+          description: 10-15 digits, optionally with a + prefix
         phone_verified:
           type: boolean
         profile_picture_url:
           type: string
         role_id:
           type: integer
+        role_name:
+          type: string
+          enum: [admin, moderator, user]
         is_deleted:
           type: boolean
         created_at:
-          type: string
-          format: date-time
-        updated_at:
           type: string
           format: date-time
 
@@ -44,37 +47,39 @@ components:
       type: object
       required:
         - username
-        - password_hash
-        - role_id
+        - password
       properties:
         username:
           type: string
-        password_hash:
+          description: 3-50 characters; letters, numbers and underscores only
+        password:
           type: string
+          description: Password will be hashed on the server
         email:
           type: string
+          description: Must be a valid email format
         phone_number:
           type: string
+          description: 10-15 digits, optionally with a + prefix
         profile_picture_url:
           type: string
         role_id:
           type: integer
+    
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: Short-lived JWT token (15 minutes) for API access
+        refresh_token:
+          type: string
+          description: Long-lived token (30 days) used to obtain new access tokens
+        user:
+          $ref: '#/components/schemas/User'
 
 paths:
   /users:
-    get:
-      summary: Retrieve a list of users
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: A list of users
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/User'
     post:
       summary: Create a new user
       requestBody:
@@ -90,6 +95,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid request (username exists, invalid format, etc.)
   
   /users/{user_id}:
     get:
@@ -127,7 +134,20 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/User'
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                email:
+                  type: string
+                phone_number:
+                  type: string
+                profile_picture_url:
+                  type: string
+                role_id:
+                  type: integer
       responses:
         '200':
           description: User updated successfully
@@ -139,7 +159,7 @@ paths:
           description: User not found
     
     delete:
-      summary: Delete a user
+      summary: Delete a user (soft delete)
       security:
         - BearerAuth: []
       parameters:
@@ -150,13 +170,17 @@ paths:
             type: integer
       responses:
         '204':
-          description: User deleted successfully
+          description: User soft-deleted successfully
         '404':
           description: User not found
 
   /auth/login:
     post:
-      summary: Authenticate a user and get a JWT token
+      summary: Authenticate a user and get JWT tokens
+      description: |
+        Login with username and password to receive access and refresh tokens.
+        The access token is short-lived (15 minutes) and used for API calls.
+        The refresh token is longer-lived (30 days) and used only to get new access tokens.
       requestBody:
         required: true
         content:
@@ -177,18 +201,16 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-                  user:
-                    $ref: '#/components/schemas/User'
+                $ref: '#/components/schemas/TokenResponse'
         '401':
           description: Authentication failed
 
   /auth/refresh:
     post:
-      summary: Refresh JWT token
+      summary: Refresh JWT access token
+      description: |
+        Get a new access token using a valid refresh token.
+        This endpoint should be called when the access token expires.
       security:
         - BearerAuth: []
       responses:
@@ -199,7 +221,29 @@ paths:
               schema:
                 type: object
                 properties:
-                  token:
+                  access_token:
                     type: string
         '401':
-          description: Invalid token 
+          description: Invalid or expired refresh token
+
+  /auth/logout:
+    post:
+      summary: Logout (revoke current token)
+      description: |
+        Revoke the current JWT token to implement logout.
+        The token will be added to a blacklist and can't be used again.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Successfully logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+        '401':
+          description: Unauthorized
+          
